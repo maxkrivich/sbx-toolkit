@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# sbx-start — start a sandbox from .sbx.toml
+# Install: curl -fsSL https://raw.githubusercontent.com/your-org/sbx-toolkit/main/install.sh | bash
+set -euo pipefail
+
+CONFIG_FILE=".sbx.toml"
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+usage() {
+	cat <<EOF
+Usage: sbx-start [--dry-run] [--help]
+
+Starts a sandbox using config from .sbx.toml in the current directory.
+
+Options:
+  --dry-run   Print the sbx command without running it
+  --help      Show this help
+
+Config file: .sbx.toml (committed to your project repo)
+Docs:        https://github.com/maxkrivich/sbx-toolkit
+EOF
+	exit 0
+}
+
+die() {
+	echo "ERROR: $*" >&2
+	exit 1
+}
+warn() { echo "WARNING: $*" >&2; }
+
+# Minimal TOML parser — reads key = "value" from flat keys (no section scoping)
+toml_get() {
+	local file="$1" key="$2"
+	grep -E "^${key}\s*=" "$file" |
+		head -1 |
+		sed -E 's/^[^=]+=\s*//; s/\r$//; s/^[[:space:]]+//; s/[[:space:]]+$//; s/^"//; s/"$//'
+}
+
+# Extract items from a TOML array (multi-line or single-line)
+toml_get_array() {
+	local file="$1" key="$2"
+	awk "/^${key}\s*=/{found=1} found{print} /\]/{if(found){found=0}}" "$file" |
+		grep -oE '"[^"]+"' |
+		tr -d '"'
+}
+
+# ── parse flags ────────────────────────────────────────────────────────────────
+
+DRY_RUN=false
+for arg in "$@"; do
+	case "$arg" in
+	--dry-run) DRY_RUN=true ;;
+	--help | -h) usage ;;
+	*) die "Unknown flag: $arg" ;;
+	esac
+done
+
+# ── check config exists ────────────────────────────────────────────────────────
+
+[[ -f "$CONFIG_FILE" ]] ||
+	die "No $CONFIG_FILE found in $(pwd). Copy .sbx.toml.example from https://github.com/maxkrivich/sbx-toolkit"
+
+# ── read config ────────────────────────────────────────────────────────────────
+
+AGENT=$(toml_get "$CONFIG_FILE" "agent")
+TEMPLATE=$(toml_get "$CONFIG_FILE" "template")
+NETWORK_POLICY=$(toml_get "$CONFIG_FILE" "network_policy")
+BRANCH=$(toml_get "$CONFIG_FILE" "branch")
+
+[[ -n "$AGENT" ]] || die "Missing 'agent' in $CONFIG_FILE"
+[[ -n "$TEMPLATE" ]] || die "Missing 'template' in $CONFIG_FILE"
+[[ -n "$NETWORK_POLICY" ]] || NETWORK_POLICY="balanced"
+
+# ── check sbx is installed ─────────────────────────────────────────────────────
+
+command -v sbx >/dev/null 2>&1 ||
+	die "'sbx' not found in PATH. Install from https://github.com/docker/sbx-releases"
+
+# ── check required secrets ─────────────────────────────────────────────────────
+
+MISSING_SECRETS=()
+while IFS= read -r secret; do
+	[[ -z "$secret" ]] && continue
+	if ! sbx secret ls 2>/dev/null | grep -q "^${secret}$"; then
+		MISSING_SECRETS+=("$secret")
+	fi
+done < <(toml_get_array "$CONFIG_FILE" "required_secrets")
+
+if [[ ${#MISSING_SECRETS[@]} -gt 0 ]]; then
+	warn "The following secrets are not set:"
+	for s in "${MISSING_SECRETS[@]}"; do
+		echo "  - $s  (run: sbx secret set $s)" >&2
+	done
+	echo "" >&2
+fi
+
+# ── apply base network policy ──────────────────────────────────────────────────
+
+CURRENT_POLICY=$(sbx policy ls 2>/dev/null | grep -oE 'open|balanced|locked-down' | head -1 || echo "")
+if [[ "$CURRENT_POLICY" != "$NETWORK_POLICY" ]]; then
+	echo "→ Setting network policy to: $NETWORK_POLICY"
+	if [[ "$DRY_RUN" == false ]]; then
+		case "$NETWORK_POLICY" in
+		open | balanced | locked-down)
+			if ! POLICY_OUTPUT="$(sbx policy set-default "$NETWORK_POLICY" 2>&1)"; then
+				if grep -q 'default policy is already set' <<<"$POLICY_OUTPUT"; then
+					echo "→ Network policy already set; leaving it unchanged"
+				else
+					echo "$POLICY_OUTPUT" >&2
+					exit 1
+				fi
+			fi
+			;;
+		*) die "Unknown network_policy '$NETWORK_POLICY'. Use: open, balanced, locked-down" ;;
+		esac
+	fi
+fi
+
+# ── apply custom network rules ─────────────────────────────────────────────────
+
+while IFS= read -r domain; do
+	[[ -z "$domain" ]] && continue
+	echo "→ Allowing network: $domain"
+	[[ "$DRY_RUN" == false ]] && sbx policy allow network "$domain"
+done < <(toml_get_array "$CONFIG_FILE" "allowed_domains")
+
+while IFS= read -r domain; do
+	[[ -z "$domain" ]] && continue
+	echo "→ Blocking network: $domain"
+	[[ "$DRY_RUN" == false ]] && sbx policy block network "$domain"
+done < <(toml_get_array "$CONFIG_FILE" "blocked_domains")
+
+# ── build sbx run command ──────────────────────────────────────────────────────
+
+CMD=(sbx run --template "$TEMPLATE")
+
+[[ -n "$BRANCH" ]] && CMD+=(--branch "$BRANCH")
+
+CMD+=("$AGENT" ".")
+
+while IFS= read -r ws; do
+	[[ -n "$ws" ]] && CMD+=("$ws")
+done < <(toml_get_array "$CONFIG_FILE" "extra_workspaces")
+
+# ── summary + run ──────────────────────────────────────────────────────────────
+
+echo "→ Starting sandbox"
+echo "  agent:          $AGENT"
+echo "  template:       $TEMPLATE"
+echo "  network policy: $NETWORK_POLICY"
+echo "  branch:         ${BRANCH:-none (direct mode)}"
+echo ""
+echo "  command: ${CMD[*]}"
+echo ""
+
+if [[ "$DRY_RUN" == true ]]; then
+	echo "(dry run — not executing)"
+	exit 0
+fi
+
+exec "${CMD[@]}"

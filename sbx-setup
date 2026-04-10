@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# sbx-setup — set up your local sandbox environment
+#
+# Think of this like applying your dotfiles, but for AI sandboxes.
+# Run it once when setting up a new machine, or whenever you update
+# your agent config (e.g. ~/.claude). Every project on this machine
+# will use the resulting image.
+#
+# Usage:
+#   ./sbx-setup [options]
+#
+# Options:
+#   --template <name>        Template from templates/ to use (default: mise)
+#   --dockerfile <path>      Custom Dockerfile (overrides --template)
+#   --agent <variant>        Base image variant (default: claude-code)
+#   --tag <image:tag>        Output image tag (auto-generated if omitted)
+#   --config <path>          Agent config dir to bake in (e.g. ~/.claude)
+#   --config-target <path>   Where to place config in image (default: /home/agent/.claude)
+#   --registry <host:port>   Registry to push to (default: localhost:5000)
+#   --no-push                Build only, don't push to registry
+#   --dry-run                Print what would happen without doing it
+#   --help                   Show this help
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── defaults ──────────────────────────────────────────────────────────────────
+
+TEMPLATE="mise"
+DOCKERFILE=""
+AGENT="claude-code"
+TAG=""
+CONFIG_PATH=""
+CONFIG_TARGET="/home/agent/.claude"
+REGISTRY="localhost:5000"
+NO_PUSH=false
+DRY_RUN=false
+
+# ── parse args ────────────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--template)
+		TEMPLATE="$2"
+		shift 2
+		;;
+	--dockerfile)
+		DOCKERFILE="$2"
+		shift 2
+		;;
+	--agent)
+		AGENT="$2"
+		shift 2
+		;;
+	--tag)
+		TAG="$2"
+		shift 2
+		;;
+	--config)
+		CONFIG_PATH="$2"
+		shift 2
+		;;
+	--config-target)
+		CONFIG_TARGET="$2"
+		shift 2
+		;;
+	--registry)
+		REGISTRY="$2"
+		shift 2
+		;;
+	--no-push)
+		NO_PUSH=true
+		shift
+		;;
+	--dry-run)
+		DRY_RUN=true
+		shift
+		;;
+	--help | -h)
+		sed -n '2,20p' "$0" | grep '^#' | sed 's/^# \?//'
+		exit 0
+		;;
+	*)
+		echo "ERROR: Unknown flag: $1" >&2
+		exit 1
+		;;
+	esac
+done
+
+# ── resolve dockerfile ────────────────────────────────────────────────────────
+
+if [[ -n "$DOCKERFILE" ]]; then
+	[[ -f "$DOCKERFILE" ]] || {
+		echo "ERROR: Dockerfile not found: $DOCKERFILE" >&2
+		exit 1
+	}
+	DOCKERFILE_PATH="$DOCKERFILE"
+	TEMPLATE_LABEL="custom"
+else
+	DOCKERFILE_PATH="$SCRIPT_DIR/templates/${TEMPLATE}/Dockerfile"
+	[[ -f "$DOCKERFILE_PATH" ]] || {
+		echo "ERROR: Template '$TEMPLATE' not found at $DOCKERFILE_PATH" >&2
+		echo "Available templates:" >&2
+		for template_path in "$SCRIPT_DIR"/templates/*; do
+			template_name="$(basename "$template_path")"
+			[[ "$template_name" == "README.md" ]] && continue
+			echo "$template_name" >&2
+		done
+		exit 1
+	}
+fi
+
+# ── resolve tag ───────────────────────────────────────────────────────────────
+
+if [[ -z "$TAG" ]]; then
+	TEMPLATE_LABEL="${TEMPLATE_LABEL:-$TEMPLATE}"
+	TAG="${REGISTRY}/sandbox-${TEMPLATE_LABEL}:${AGENT}"
+fi
+
+# ── ensure local registry is running ─────────────────────────────────────────
+
+if [[ "$NO_PUSH" == false ]] && echo "$REGISTRY" | grep -qE '^localhost:'; then
+	PORT="${REGISTRY#*:}"
+	REGISTRY_CONTAINER=""
+
+	if [[ "$DRY_RUN" == false ]]; then
+		REGISTRY_CONTAINER="$(
+			docker ps --filter "ancestor=registry:2" --filter "publish=${PORT}" \
+				--format '{{.Names}}' | head -n 1
+		)"
+	fi
+
+	if [[ -n "$REGISTRY_CONTAINER" ]]; then
+		echo "→ Reusing local registry container $REGISTRY_CONTAINER on $REGISTRY"
+	elif docker ps --filter "publish=${PORT}" --format '{{.Names}}' 2>/dev/null | grep -q .; then
+		echo "ERROR: Port $PORT is already in use by a different container" >&2
+		echo "       Stop the other container or choose a different --registry port" >&2
+		exit 1
+	else
+		echo "→ Starting local registry at $REGISTRY"
+		if [[ "$DRY_RUN" == false ]]; then
+			docker run -d -p "${PORT}:5000" --restart always \
+				--name local-registry registry:2 >/dev/null
+		fi
+	fi
+fi
+
+# ── build context ─────────────────────────────────────────────────────────────
+
+BUILD_PARENT="${TMPDIR:-$SCRIPT_DIR/.tmp}"
+mkdir -p "$BUILD_PARENT"
+BUILD_DIR=$(mktemp -d "${BUILD_PARENT%/}/sbx-setup.XXXXXX")
+trap 'rm -rf "$BUILD_DIR"' EXIT
+
+cp "$DOCKERFILE_PATH" "$BUILD_DIR/Dockerfile"
+
+# Copy agent config into the build context
+if [[ -n "$CONFIG_PATH" ]]; then
+	mkdir -p "$BUILD_DIR/agent-config"
+	if [[ -d "$CONFIG_PATH" ]]; then
+		cp -a "$CONFIG_PATH/." "$BUILD_DIR/agent-config/"
+	else
+		echo "WARNING: Config path not found: $CONFIG_PATH — skipping" >&2
+	fi
+else
+	mkdir -p "$BUILD_DIR/agent-config"
+fi
+
+if [[ -d "$BUILD_DIR/agent-config" ]]; then
+	if ! find "$BUILD_DIR/agent-config" -mindepth 1 -maxdepth 1 | grep -q .; then
+		echo "WARNING: No agent config files were copied into the build context" >&2
+	fi
+fi
+
+# ── summary ───────────────────────────────────────────────────────────────────
+
+echo "→ Setting up local sandbox environment"
+echo "  template:      $DOCKERFILE_PATH"
+echo "  agent:         $AGENT"
+echo "  image tag:     $TAG"
+echo "  agent config:  ${CONFIG_PATH:-none}"
+echo ""
+
+if [[ "$DRY_RUN" == true ]]; then
+	echo "docker build \\"
+	echo "  --build-arg AGENT=$AGENT \\"
+	echo "  --build-arg CONFIG_TARGET=$CONFIG_TARGET \\"
+	echo "  -t $TAG \\"
+	echo "  $BUILD_DIR"
+	[[ "$NO_PUSH" == false ]] && echo "docker push $TAG"
+	echo ""
+	echo "Add this to your project's .sbx.toml:"
+	echo "  template = \"$TAG\""
+	echo ""
+	echo "(dry run — not executing)"
+	exit 0
+fi
+
+# ── build + push ──────────────────────────────────────────────────────────────
+
+docker build \
+	--build-arg AGENT="$AGENT" \
+	--build-arg CONFIG_TARGET="$CONFIG_TARGET" \
+	-t "$TAG" \
+	"$BUILD_DIR"
+
+if [[ "$NO_PUSH" == false ]]; then
+	echo "→ Installing to local registry ($REGISTRY)"
+	docker push "$TAG"
+
+	if echo "$REGISTRY" | grep -qE '^localhost:'; then
+		sbx policy allow network "$REGISTRY" 2>/dev/null || true
+	fi
+fi
+
+# ── done ──────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "✓ Local sandbox environment ready"
+echo ""
+echo "Add this to your project's .sbx.toml:"
+echo "  template = \"$TAG\""
+echo ""
+echo "Then start any project sandbox with:"
+echo "  sbx-start"

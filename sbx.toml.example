@@ -1,0 +1,66 @@
+# .sbx.toml.example
+# Copy this file to your project root as .sbx.toml and fill in the values.
+# Commit .sbx.toml to your repo — everyone on the team will use the same settings.
+#
+# Run with: sbx-start
+# Docs:     https://github.com/maxkrivich/sbx-toolkit
+
+[sandbox]
+
+# ── required ──────────────────────────────────────────────────────────────────
+
+# The agent to run inside the sandbox.
+# Options: claude, codex, kiro, shell, gemini, copilot, opencode
+agent = "claude"
+
+# The template image to use.
+# Paste the exact image reference printed by sbx-setup.
+# Tip: pin to a digest for reproducibility:
+#   localhost:5000/sbx-toolkit:mise-claude-code@sha256:...
+template = "localhost:5000/sbx-toolkit:mise-claude-code"
+
+# ── network ───────────────────────────────────────────────────────────────────
+
+# Base network policy.
+# - open:         all outbound traffic allowed
+# - balanced:     common dev sites allowed (npm, PyPI, GitHub, etc.), rest blocked
+# - locked-down:  everything blocked unless explicitly listed in allowed_domains
+network_policy = "balanced"
+
+# Extra domains to allow on top of the base policy.
+# Use for internal APIs, private registries, or any host balanced mode blocks.
+# allowed_domains = [
+#   "registry.internal.example.com:443",
+#   "api.internal.example.com:443",
+# ]
+
+# Domains to explicitly block, even if the base policy would allow them.
+# blocked_domains = [
+#   "example.com",
+# ]
+
+# ── git ───────────────────────────────────────────────────────────────────────
+
+# Branch mode. The agent works on its own branch instead of your main working tree.
+# - "auto":       sbx generates a branch name
+# - "my-branch":  use a fixed branch name
+# - omit:         direct mode — agent edits your working tree directly
+branch = "auto"
+
+# ── secrets ───────────────────────────────────────────────────────────────────
+
+# Secret names required to run this sandbox.
+# Values are NEVER stored here. sbx-start checks they exist and warns if missing.
+# Set them once per machine with: sbx secret set <name>
+# required_secrets = [
+#   "ANTHROPIC_API_KEY",
+#   "GITHUB_TOKEN",
+# ]
+
+# ── workspaces ────────────────────────────────────────────────────────────────
+
+# Additional directories to mount into the sandbox (read-only).
+# Useful for monorepos, shared docs, or design specs.
+# extra_workspaces = [
+#   "../shared-docs:ro",
+# ]
