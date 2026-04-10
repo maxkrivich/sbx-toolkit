@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
-# install.sh — installs sbx-start from GitHub
+# install.sh — installs sbx-start and sbx-setup from GitHub
 # Usage: curl -fsSL https://raw.githubusercontent.com/your-org/sbx-toolkit/main/install.sh | bash
 set -euo pipefail
 
 REPO="maxkrivich/sbx-toolkit"
 BRANCH="main"
-BINARY="sbx-start"
-RAW_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/${BINARY}"
+BINARIES=("sbx-start" "sbx-setup")
+TEMPLATE_FILES=(
+	"templates/README.md"
+	"templates/base/Dockerfile"
+	"templates/mise/Dockerfile"
+)
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/sbx-toolkit"
 
 # ── resolve install dir ───────────────────────────────────────────────────────
 
-if [[ -d "$HOME/bin" ]] && echo "$PATH" | grep -q "$HOME/bin"; then
+if echo "$PATH" | grep -q "$HOME/bin"; then
 	INSTALL_DIR="$HOME/bin"
-elif [[ -d "$HOME/.local/bin" ]] && echo "$PATH" | grep -q "$HOME/.local/bin"; then
+elif echo "$PATH" | grep -q "$HOME/.local/bin"; then
 	INSTALL_DIR="$HOME/.local/bin"
-else
+elif [[ -w "/usr/local/bin" ]]; then
 	INSTALL_DIR="/usr/local/bin"
+else
+	INSTALL_DIR="$HOME/.local/bin"
 fi
 
-INSTALL_PATH="$INSTALL_DIR/$BINARY"
+mkdir -p "$INSTALL_DIR"
 
 # ── check dependencies ────────────────────────────────────────────────────────
 
@@ -27,25 +34,51 @@ command -v curl >/dev/null 2>&1 || {
 	exit 1
 }
 
-# ── download ──────────────────────────────────────────────────────────────────
+# ── install binaries ──────────────────────────────────────────────────────────
 
-echo "→ Downloading $BINARY"
-if ! curl -fsSL "$RAW_URL" -o "$INSTALL_PATH" 2>/dev/null; then
-	echo "→ Retrying with sudo to /usr/local/bin..."
-	INSTALL_DIR="/usr/local/bin"
-	INSTALL_PATH="$INSTALL_DIR/$BINARY"
-	sudo curl -fsSL "$RAW_URL" -o "$INSTALL_PATH"
-fi
+for binary in "${BINARIES[@]}"; do
+	raw_url="https://raw.githubusercontent.com/${REPO}/${BRANCH}/${binary}"
+	install_path="$INSTALL_DIR/$binary"
 
-chmod +x "$INSTALL_PATH"
+	echo "→ Downloading $binary"
+	if ! curl -fsSL "$raw_url" -o "$install_path"; then
+		echo "ERROR: Failed to install $binary to $install_path" >&2
+		echo "       Choose a writable directory in PATH or rerun with elevated permissions." >&2
+		exit 1
+	fi
+
+	chmod +x "$install_path"
+	echo "✓ Installed to $install_path"
+done
+
+# ── install templates for sbx-setup ──────────────────────────────────────────
+
+echo "→ Installing templates to $DATA_DIR/templates"
+for template_file in "${TEMPLATE_FILES[@]}"; do
+	target_path="$DATA_DIR/$template_file"
+	target_dir="$(dirname "$target_path")"
+	url="https://raw.githubusercontent.com/${REPO}/${BRANCH}/${template_file}"
+
+	mkdir -p "$target_dir"
+	if ! curl -fsSL "$url" -o "$target_path"; then
+		echo "ERROR: Failed to download $template_file" >&2
+		exit 1
+	fi
+done
+echo "✓ Templates installed to $DATA_DIR/templates"
 
 # ── verify ────────────────────────────────────────────────────────────────────
 
-echo "✓ Installed to $INSTALL_PATH"
+missing=()
+for binary in "${BINARIES[@]}"; do
+	if command -v "$binary" >/dev/null 2>&1; then
+		echo "✓ $binary is on your PATH"
+	else
+		missing+=("$binary")
+	fi
+done
 
-if command -v "$BINARY" >/dev/null 2>&1; then
-	echo "✓ $BINARY is on your PATH"
-else
+if [[ ${#missing[@]} -gt 0 ]]; then
 	echo ""
 	echo "NOTE: Add $INSTALL_DIR to your PATH:"
 	echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
@@ -54,7 +87,9 @@ fi
 
 echo ""
 echo "Next steps:"
-echo "  1. Run: ./sbx-setup --config ~/.claude"
+echo "  1. Run: sbx-setup --config ~/.claude"
 echo "  2. Run: sbx-start"
+echo ""
+echo "Templates location: $DATA_DIR/templates"
 echo ""
 echo "Full docs: https://github.com/${REPO}"
