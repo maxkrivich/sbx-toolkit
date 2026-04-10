@@ -51,7 +51,7 @@ Your machine
 ### 1. Install sbx-start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/sbx-toolkit/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maxkrivich/sbx-toolkit/main/install.sh | bash
 ```
 
 ### 2. Set up your local sandbox environment
