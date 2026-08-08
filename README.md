@@ -75,7 +75,7 @@ After running, `sbx-setup` prints the `template =` line to paste into your `.sbx
 ### 3. Add `.sbx.toml` to your project
 
 ```bash
-cp .sbx.toml.example /your/project/.sbx.toml
+cp sbx.toml.example /your/project/.sbx.toml
 # edit: paste the template image printed by sbx-setup
 ```
 
@@ -167,7 +167,7 @@ Commit this file to your project repo. All fields under `[sandbox]`.
 | `blocked_domains` | | — | Domains to block even if base policy allows them. |
 | `extra_workspaces` | | — | Extra paths to mount into the sandbox. |
 
-See [`.sbx.toml.example`](./.sbx.toml.example) for a fully annotated example.
+See [`sbx.toml.example`](./sbx.toml.example) for a fully annotated example.
 
 ### Network policy layering
 
@@ -262,7 +262,7 @@ sbx-toolkit/
 ├── sbx-setup              # Machine setup — builds your local sandbox environment
 ├── sbx-start              # Project runner — reads .sbx.toml, starts sandbox
 ├── install.sh             # curl installer for sbx-start
-├── .sbx.toml.example      # Copy into your project and fill in
+├── sbx.toml.example       # Copy into your project and fill in
 ├── templates/
 │   ├── mise/
 │   │   └── Dockerfile     # mise version manager
