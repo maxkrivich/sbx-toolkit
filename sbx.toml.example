@@ -16,8 +16,8 @@ agent = "claude"
 # The template image to use.
 # Paste the exact image reference printed by sbx-setup.
 # Tip: pin to a digest for reproducibility:
-#   localhost:5000/sbx-toolkit:mise-claude-code@sha256:...
-template = "localhost:5000/sbx-toolkit:mise-claude-code"
+#   localhost:8050/sandbox-mise:claude-code@sha256:...
+template = "localhost:8050/sandbox-mise:claude-code"
 
 # ── network ───────────────────────────────────────────────────────────────────
 

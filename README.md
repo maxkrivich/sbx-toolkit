@@ -22,7 +22,7 @@ Your machine
 │
 └── sbx-setup           ← run once to bake these into a local image
         ↓
-    localhost:5000/sbx-toolkit:mise-claude-code   ← your sandbox environment
+    localhost:8050/sandbox-mise:claude-code       ← your sandbox environment
         ↓
     used by every project on this machine via .sbx.toml
 ```
@@ -103,7 +103,7 @@ Options:
   --tag <image:tag>      Output image tag (auto-generated if omitted)
   --config <path>        Agent config dir to bake in (e.g. ~/.claude)
   --config-target <path> Where config lands in image (default: /home/agent/.claude)
-  --registry <host:port> Registry to use (default: localhost:5000)
+  --registry <host:port> Registry to use (default: localhost:8050)
   --no-push              Build only, skip push
   --dry-run              Print commands without running
 ```

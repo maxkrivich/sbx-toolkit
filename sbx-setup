@@ -16,7 +16,7 @@
 #   --tag <image:tag>        Output image tag (auto-generated if omitted)
 #   --config <path>          Agent config dir to bake in (e.g. ~/.claude)
 #   --config-target <path>   Where to place config in image (default: /home/agent/.claude)
-#   --registry <host:port>   Registry to push to (default: localhost:5000)
+#   --registry <host:port>   Registry to push to (default: localhost:8050)
 #   --no-push                Build only, don't push to registry
 #   --dry-run                Print what would happen without doing it
 #   --help                   Show this help
@@ -33,7 +33,7 @@ AGENT="claude-code"
 TAG=""
 CONFIG_PATH=""
 CONFIG_TARGET="/home/agent/.claude"
-REGISTRY="localhost:5000"
+REGISTRY="localhost:8050"
 NO_PUSH=false
 DRY_RUN=false
 

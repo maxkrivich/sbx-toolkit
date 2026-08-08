@@ -8,7 +8,8 @@
 #   docker build --build-arg AGENT=claude-code -f templates/mise/Dockerfile .
 #
 # Extend this in your own Dockerfile:
-#   FROM my-org/sandbox:mise
+#   ARG AGENT=claude-code
+#   FROM localhost:8050/sandbox-mise:${AGENT}
 #   USER root
 #   RUN apt-get update && apt-get install -y my-tool
 #   USER agent
