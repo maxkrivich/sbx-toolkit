@@ -41,7 +41,7 @@ Your machine
 |---|---|---|
 | Agent instructions, plugins, commands | `~/.claude` → baked into image via `sbx-setup` | Personal, machine-level |
 | Tool versions (node, python, go…) | `mise.toml` in project → read by mise at runtime | Project-level, committed |
-| Sandbox settings (agent, network, secrets) | `.sbx.toml` in project → read by `sbx-start` | Project-level, committed |
+| Sandbox settings (agent, network, files, secrets) | `.sbx.toml` in project → read by `sbx-start` | Project-level, committed |
 | Secret values | OS keychain via `sbx secret set` | Never on disk or in images |
 
 ---
@@ -161,10 +161,13 @@ Commit this file to your project repo. All fields under `[sandbox]`.
 | `agent` | ✅ | — | `claude`, `codex`, `kiro`, `shell`, etc. |
 | `template` | ✅ | — | Paste the exact image reference printed by `sbx-setup` |
 | `network_policy` | | `balanced` | `open`, `balanced`, or `locked-down` |
-| `branch` | | — | `auto` or branch name. Omit for direct mode. |
+| `clone` | | — | `enabled`. Omit for direct writes to repo. |
 | `required_secrets` | | — | Secret names to check. Missing ones warn, don't block. |
 | `allowed_domains` | | — | Extra domains to allow on top of base policy. |
 | `blocked_domains` | | — | Domains to block even if base policy allows them. |
+| `clone` | | — | `enabled`. Omit for direct writes to repo. |
+| `include_untracked_files` | | — | Project files, left behind by a clone, to copy into the sandboxed project. |
+| `required_secrets` | | — | Secret names to check. Missing ones warn, don't block. |
 | `extra_workspaces` | | — | Extra paths to mount into the sandbox. |
 
 See [`.sbx.toml.example`](./.sbx.toml.example) for a fully annotated example.

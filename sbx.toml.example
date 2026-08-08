@@ -41,11 +41,29 @@ network_policy = "balanced"
 
 # ── git ───────────────────────────────────────────────────────────────────────
 
-# Branch mode. The agent works on its own branch instead of your main working tree.
-# - "auto":       sbx generates a branch name
-# - "my-branch":  use a fixed branch name
+# Clone mode (for more security, as the agent can't touch git hooks, package.json,
+# Makefile, IDE task configurations, CI workflows, etc.)
+#
+# TIP: see "include_untracked_files" to add on project files from host that are not in
+# the git repo, e.g. .claude/, when enabling clone mode.
+#
+# - "enabled":    clones repo with the same ref (e.g. branch) as on the host
 # - omit:         direct mode — agent edits your working tree directly
-branch = "auto"
+# clone = "enabled"
+
+# ── untracked project files ───────────────────────────────────────────────────
+
+# Additional directories to copy into the project repo.
+# Useful when clone mode is enabled to add on project files from host that are
+# not in the git repo, e.g. .claude/.
+#
+# NOTE: paths must be relative to the project root.
+#
+# include_untracked_files = [
+#   ".env",
+#   ".envrc",
+#   ".claude",
+# ]
 
 # ── secrets ───────────────────────────────────────────────────────────────────
 

@@ -38,11 +38,22 @@ toml_get() {
 }
 
 # Extract items from a TOML array (multi-line or single-line)
+# WARNING: filenames must not contain `]`
 toml_get_array() {
 	local file="$1" key="$2"
-	awk "/^${key}\s*=/{found=1} found{print} /\]/{if(found){found=0}}" "$file" |
-		grep -oE '"[^"]+"' |
-		tr -d '"'
+	awk -v key="$key" '
+		$0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+			found = 1
+		}
+		found {
+			print
+		}
+		found && /[]]/ {
+			found = 0
+		}
+	' "$file" |
+			grep -oE '"[^"]+"' |
+			tr -d '"'
 }
 
 # ── parse flags ────────────────────────────────────────────────────────────────
@@ -66,7 +77,7 @@ done
 AGENT=$(toml_get "$CONFIG_FILE" "agent")
 TEMPLATE=$(toml_get "$CONFIG_FILE" "template")
 NETWORK_POLICY=$(toml_get "$CONFIG_FILE" "network_policy")
-BRANCH=$(toml_get "$CONFIG_FILE" "branch")
+CLONE=$(toml_get "$CONFIG_FILE" "clone" || true)
 
 [[ -n "$AGENT" ]] || die "Missing 'agent' in $CONFIG_FILE"
 [[ -n "$TEMPLATE" ]] || die "Missing 'template' in $CONFIG_FILE"
@@ -133,30 +144,89 @@ done < <(toml_get_array "$CONFIG_FILE" "blocked_domains")
 
 # ── build sbx run command ──────────────────────────────────────────────────────
 
-CMD=(sbx run --template "$TEMPLATE")
+WORKDIR=$(basename "$(pwd)")
+SANDBOX="$AGENT-$WORKDIR"
 
-[[ -n "$BRANCH" ]] && CMD+=(--branch "$BRANCH")
+sandbox_exists=
 
-CMD+=("$AGENT" ".")
-
-while IFS= read -r ws; do
-	[[ -n "$ws" ]] && CMD+=("$ws")
-done < <(toml_get_array "$CONFIG_FILE" "extra_workspaces")
-
-# ── summary + run ──────────────────────────────────────────────────────────────
-
-echo "→ Starting sandbox"
-echo "  agent:          $AGENT"
-echo "  template:       $TEMPLATE"
-echo "  network policy: $NETWORK_POLICY"
-echo "  branch:         ${BRANCH:-none (direct mode)}"
-echo ""
-echo "  command: ${CMD[*]}"
-echo ""
-
-if [[ "$DRY_RUN" == true ]]; then
-	echo "(dry run — not executing)"
-	exit 0
+if sbx ls -q | grep -Fqx "$SANDBOX"; then
+  sandbox_exists=1
 fi
 
-exec "${CMD[@]}"
+if [[ -z "$sandbox_exists" ]]; then
+	# If the sandbox doesn't yet exist, create it
+	CREATE_CMD=(sbx create --name "$SANDBOX" --template "$TEMPLATE")
+
+	[[ -n "$CLONE" ]] && CREATE_CMD+=(--clone)
+
+	CREATE_CMD+=("$AGENT" ".")
+
+	while IFS= read -r ws; do
+		[[ -n "$ws" ]] && CREATE_CMD+=("$ws")
+	done < <(toml_get_array "$CONFIG_FILE" "extra_workspaces")
+
+	echo "→ Creating sandbox $SANDBOX"
+	echo "  agent:           $AGENT"
+	echo "  template:        $TEMPLATE"
+	echo "  network policy:  $NETWORK_POLICY"
+	echo "  clone:           ${CLONE:-disabled}"
+	echo ""
+	echo "  command: ${CREATE_CMD[*]}"
+	echo ""
+
+	if [[ "$DRY_RUN" == true ]]; then
+		echo "(dry run — not executing)"
+		echo "${CREATE_CMD[@]}"
+	else
+		"${CREATE_CMD[@]}"
+	fi
+	echo
+fi
+
+# ── Optionally, copy project files, untracked by git -─────────────────────────
+
+while IFS= read -r untracked_file; do
+	if [[ "$untracked_file" == /* ]]; then
+		echo "ERROR: Project file/dir must be relative to project root. Skipping: $untracked_file" >&2
+	else
+		echo "➕ Copying extra project file/dir to sandbox: $untracked_file"
+
+		if [[ "$DRY_RUN" == true ]]; then
+			echo "(dry run — not executing)"
+		else
+			# NOTE: we have to read from </dev/null or sbx exec will suck the output of toml_get_array
+			sbx exec "$SANDBOX" bash -lc '
+				set -euo pipefail
+
+				untracked_file=$1
+				source_root=/run/sandbox/source
+				src=$source_root/$untracked_file
+				dst=$PWD/$untracked_file
+
+				if [ ! -e "$src" ] && [ ! -L "$src" ]; then
+					echo "ERROR: Source does not exist: $src" >&2
+					exit 1
+				fi
+
+				if [ -d "$src" ] && [ ! -L "$src" ]; then
+					mkdir -p "$dst"
+					cp -a "$src"/. "$dst"/
+				else
+					mkdir -p "$(dirname "$dst")"
+					cp -a "$src" "$dst"
+				fi
+			' bash "$untracked_file" </dev/null
+		fi
+	fi
+done < <(toml_get_array "$CONFIG_FILE" "include_untracked_files" || true)
+echo
+
+# ── sbx run command ───────────────────────────────────────────────────────────
+
+echo "→ Running sandbox $SANDBOX"
+if [[ "$DRY_RUN" == true ]]; then
+	echo "(dry run — not executing)"
+	echo sbx run --name "$SANDBOX"
+else
+	exec sbx run --name "$SANDBOX"
+fi
