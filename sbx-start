@@ -97,23 +97,33 @@ fi
 
 # ── apply base network policy ──────────────────────────────────────────────────
 
-CURRENT_POLICY=$(sbx policy ls 2>/dev/null | grep -oE 'open|balanced|locked-down' | head -1 || echo "")
-if [[ "$CURRENT_POLICY" != "$NETWORK_POLICY" ]]; then
-	echo "→ Setting network policy to: $NETWORK_POLICY"
-	if [[ "$DRY_RUN" == false ]]; then
-		case "$NETWORK_POLICY" in
-		open | balanced | locked-down)
-			if ! POLICY_OUTPUT="$(sbx policy set-default "$NETWORK_POLICY" 2>&1)"; then
-				if grep -q 'default policy is already set' <<<"$POLICY_OUTPUT"; then
-					echo "→ Network policy already set; leaving it unchanged"
-				else
-					echo "$POLICY_OUTPUT" >&2
-					exit 1
-				fi
-			fi
-			;;
-		*) die "Unknown network_policy '$NETWORK_POLICY'. Use: open, balanced, locked-down" ;;
-		esac
+# The output of `sbx policy ls` no longer contains the base policy name, so we
+# can't detect the current policy. Instead we always attempt `sbx policy init`
+# with the requested policy; if it's already initialized, sbx errors out and we
+# leave it unchanged.
+#
+# See: https://github.com/maxkrivich/sbx-toolkit/issues/3
+
+# TODO: remove backward-compat for old policy names (open, locked-down)
+case "$NETWORK_POLICY" in
+open)        NETWORK_POLICY="allow-all" ;;
+locked-down) NETWORK_POLICY="deny-all" ;;
+esac
+
+case "$NETWORK_POLICY" in
+allow-all | balanced | deny-all) ;;
+*) die "Unknown network_policy '$NETWORK_POLICY'. Use: allow-all, balanced, deny-all" ;;
+esac
+
+echo "→ Initializing network policy: $NETWORK_POLICY"
+if [[ "$DRY_RUN" == false ]]; then
+	if ! POLICY_OUTPUT="$(sbx policy init "$NETWORK_POLICY" 2>&1)"; then
+		if grep -q 'already initialized' <<<"$POLICY_OUTPUT"; then
+			echo "→ Network policy already initialized; leaving it unchanged"
+		else
+			echo "$POLICY_OUTPUT" >&2
+			exit 1
+		fi
 	fi
 fi
 

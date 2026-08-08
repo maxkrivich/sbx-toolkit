@@ -22,9 +22,9 @@ template = "localhost:5000/sbx-toolkit:mise-claude-code"
 # ── network ───────────────────────────────────────────────────────────────────
 
 # Base network policy.
-# - open:         all outbound traffic allowed
-# - balanced:     common dev sites allowed (npm, PyPI, GitHub, etc.), rest blocked
-# - locked-down:  everything blocked unless explicitly listed in allowed_domains
+# - allow-all:  all outbound traffic allowed
+# - balanced:   common dev sites allowed (npm, PyPI, GitHub, etc.), rest blocked
+# - deny-all:   everything blocked unless explicitly listed in allowed_domains
 network_policy = "balanced"
 
 # Extra domains to allow on top of the base policy.
