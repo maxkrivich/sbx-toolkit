@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
 		shift
 		;;
 	--help | -h)
-		sed -n '2,20p' "$0" | grep '^#' | sed 's/^# \?//'
+		sed -n '2,/^set -euo pipefail/p' "$0" | grep '^#' | sed 's/^# \?//'
 		exit 0
 		;;
 	*)
