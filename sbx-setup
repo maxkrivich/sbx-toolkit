@@ -167,7 +167,16 @@ cp "$DOCKERFILE_PATH" "$BUILD_DIR/Dockerfile"
 if [[ -n "$CONFIG_PATH" ]]; then
 	mkdir -p "$BUILD_DIR/agent-config"
 	if [[ -d "$CONFIG_PATH" ]]; then
-		cp -a "$CONFIG_PATH/." "$BUILD_DIR/agent-config/"
+		# Copy, dereferencing symlinks (excluding the broken symlinks)
+		rsync -aL \
+			--from0 \
+			--exclude-from=<( 
+				cd "$CONFIG_PATH" &&
+				find . -type l ! -exec test -e {} \; -print0 |
+				perl -0pe 's{\A\./}{}'
+			) \
+			"$CONFIG_PATH/." "$BUILD_DIR/agent-config/"
+		fi
 	else
 		echo "WARNING: Config path not found: $CONFIG_PATH — skipping" >&2
 	fi
